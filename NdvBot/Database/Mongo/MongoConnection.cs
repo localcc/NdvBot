@@ -15,9 +15,11 @@ namespace NdvBot.Database.Mongo
         public IMongoDatabase ServerDb { get; }
         
         private const string MainDbName = "dev";
+        private readonly string _certsFolder;
         
-        public MongoConnection()
+        public MongoConnection(string certsFolder)
         {
+            this._certsFolder = certsFolder;
             if (ConfigFile.Current is null)
             {
                 throw new DataException("Config file not ready!");
@@ -28,10 +30,10 @@ namespace NdvBot.Database.Mongo
                 Credential = MongoCredential.CreateMongoX509Credential(ConfigFile.Current.DatabaseUsername),
                 SslSettings = new SslSettings()
                 {
-                    ServerCertificateValidationCallback = CertificateValidationCallback,
+                    ServerCertificateValidationCallback = this.CertificateValidationCallback,
                     ClientCertificates = new[]
                     {
-                        new X509Certificate2(GetAuthFilePath(ConfigFile.Current.CertName),
+                        new X509Certificate2(GetAuthFilePath(certsFolder, ConfigFile.Current.CertName),
                             ConfigFile.Current.CertPassword)
                     }
                 },
@@ -47,12 +49,12 @@ namespace NdvBot.Database.Mongo
             ConventionRegistry.Register("IgnoreExtraElements", conventionPack, t => true);
         }
 
-        private static string GetAuthFilePath(string authFile)
+        private string GetAuthFilePath(string certsFolder, string authFile)
         {
-            return Path.Combine(Directory.GetCurrentDirectory(), "certs/" + authFile);
+            return Path.Combine(certsFolder, authFile);
         }
 
-        private static bool CertificateValidationCallback(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        private bool CertificateValidationCallback(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors sslPolicyErrors)
         {
             if (ConfigFile.Current is null)
             {
@@ -64,7 +66,7 @@ namespace NdvBot.Database.Mongo
             }
             if (sslPolicyErrors == SslPolicyErrors.RemoteCertificateChainErrors)
             {
-                X509Certificate2 caCert = new X509Certificate2(GetAuthFilePath(ConfigFile.Current.CACertName));
+                X509Certificate2 caCert = new X509Certificate2(GetAuthFilePath(this._certsFolder, ConfigFile.Current.CACertName));
                 X509Chain caChain = new X509Chain
                 {
                     ChainPolicy = new X509ChainPolicy

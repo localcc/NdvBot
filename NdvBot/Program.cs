@@ -17,9 +17,9 @@ namespace NdvBot
         
         static async Task<int> Main(string[] args)
         {
-            if (args.Length != 1)
+            if (args.Length != 2)
             {
-                await Console.Error.WriteLineAsync("Invalid arguments!\nUsage: [CONFIG_FILE]");
+                await Console.Error.WriteLineAsync("Invalid arguments!\nUsage: [CONFIG_FILE] [CERTS_PATH]");
                 return -1;
             }
 
@@ -44,7 +44,7 @@ namespace NdvBot
                 var socketClient = new DiscordSocketClient();
                 var commands = new CommandService();
                 var serviceProvider = new ServiceCollection().AddSingleton(socketClient).AddSingleton(commands)
-                    .AddSingleton<IMongoConnection, MongoConnection>().AddSingleton<IClient, Client>().AddSingleton<ILogger, Logger>()
+                    .AddSingleton<IMongoConnection, MongoConnection>((provider) => new MongoConnection(args[1])).AddSingleton<IClient, Client>().AddSingleton<ILogger, Logger>()
                     .BuildServiceProvider();
                 var client = (IClient) serviceProvider.GetService(typeof(IClient));
                 await client.Start(deserialized.Token);

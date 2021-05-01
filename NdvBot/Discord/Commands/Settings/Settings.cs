@@ -19,7 +19,7 @@ namespace NdvBot.Discord.Commands.Settings
         [RequireUserPermission(GuildPermission.Administrator)]
         [Command("setPrefix")]
         [Summary("Changes command prefix, default: `!`")]
-        public async Task<CommandResult> SetPrefix(string? newPrefix)
+        public async Task<RuntimeResult> SetPrefix(string? newPrefix)
         {
             if (newPrefix is null || newPrefix.Length > 3)
             {
