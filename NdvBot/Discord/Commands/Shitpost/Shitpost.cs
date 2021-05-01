@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Commands;
@@ -42,13 +43,14 @@ namespace NdvBot.Discord.Commands.Shitpost
                 return CommandResult.FromError("Shit post channel is not set");
             }
             //todo: localization
-            var builder = new EmbedBuilder().WithAuthor(Context.User).WithColor(0, 128, 0)
-                .WithDescription("Queue of shitpost channel").WithCurrentTimestamp();
 
+
+            var chunkBuilder = new ChunkStringBuilder("glsl");
             var removeQueue = new List<ulong>();
-            
+
             for (var i = 0; i < data.ChannelQueue.Count; i++)
             {
+                StringBuilder localBuilder = new();
                 var user = this.Context.Client.GetUser(data.ChannelQueue[i]);
                 if (user is null)
                 {
@@ -56,10 +58,28 @@ namespace NdvBot.Discord.Commands.Shitpost
                     continue;
                 }
 
-                builder.AddField(new EmbedFieldBuilder().WithName(i.ToString()).WithValue(user.Username).WithIsInline(false));
+                localBuilder.Append(i);
+                localBuilder.Append(": ");
+                localBuilder.Append(user.Username);
+                localBuilder.Append("#");
+                localBuilder.Append(user.Discriminator);
+                if (i != data.ChannelQueue.Count - 1)
+                {
+                    localBuilder.Append("\n");
+                }
+
+                chunkBuilder.Append(localBuilder);
             }
 
-            var t1 =  this.Context.Channel.SendMessageAsync(null, false, builder.Build());
+            Task t1;
+            if (data.ChannelQueue.Count != 0)
+            {
+                t1 = chunkBuilder.PrintOut((builder) => ReplyAsync(builder.ToString()));
+            }
+            else
+            {
+                t1 = ReplyAsync("Queue is empty!");
+            }
 
             data.ChannelQueue.RemoveAll(e => removeQueue.Contains(e));
 

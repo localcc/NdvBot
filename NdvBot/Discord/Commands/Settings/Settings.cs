@@ -20,13 +20,22 @@ namespace NdvBot.Discord.Commands.Settings
         [Command("setPrefix")]
         [Summary("Changes command prefix, default: `>>`")]
         public async Task<RuntimeResult> SetPrefix(string? newPrefix)
-        {
+        {            
             if (newPrefix is null || newPrefix.Length > 3)
             {
                 //todo: localization
                 return CommandResult.FromError("Invalid prefix!");
             } 
+
+            var botUser = this.Context.Guild.GetUser(this.Context.Client.CurrentUser.Id);
+            await botUser.ModifyAsync((props) =>
+            {
+                //space, two brackets
+                if (botUser.Nickname.Length + newPrefix.Length + 3 >= 30) return;
+                props.Nickname = $"[{newPrefix}] {botUser.Username}";
+            });
             
+
             var f1 = Builders<GuildData>.Filter.Eq("GuildId", Context.Guild.Id);
             var update = Builders<GuildData>.Update.Set("Prefix", newPrefix);
             await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)

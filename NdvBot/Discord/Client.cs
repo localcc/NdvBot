@@ -48,6 +48,18 @@ namespace NdvBot.Discord
 
                 await init.Init(this._serviceProvider);
             }
+
+            this.DiscordClient.JoinedGuild += this.JoinedGuild;
         }
+
+        private async Task JoinedGuild(SocketGuild guild)
+        {
+            var botUser = guild.GetUser(this.DiscordClient.CurrentUser.Id);
+            await botUser.ModifyAsync((props) =>
+            {
+                props.Nickname = $"[>>] {this.DiscordClient.CurrentUser.Username}";
+            });
+        }
+
     }
 }

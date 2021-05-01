@@ -50,7 +50,7 @@ namespace NdvBot.Discord.Init
                 var guildId = guildData.GuildId;
                 var channelId = guildData.ShitPostData!.ShitPostChannelId;
                 var guild = this._client.DiscordClient.GetGuild(guildId);
-                if (guild is null) return;
+                if (guild is null) continue;
                 var channel = guild.GetTextChannel(channelId);
                 if (channel is null)
                 {
@@ -58,7 +58,7 @@ namespace NdvBot.Discord.Init
                     var update = Builders<GuildData>.Update.Set<ShitPostData?>("ShitPostData", null);
                     await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                         .FindOneAndUpdateAsync(filter, update);
-                    return;
+                    continue;
                 }
                 
                 var tasks = new List<Task>(channel.PermissionOverwrites.Count);
@@ -75,7 +75,7 @@ namespace NdvBot.Discord.Init
                 if (guildData.ShitPostData!.ChannelQueue.Count == 0)
                 {
                     await channel.ModifyAsync((props) => props.Name = $"{guild.Owner.Username}-shitpost");
-                    return;
+                    continue;
                 }
 
                 try

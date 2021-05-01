@@ -21,9 +21,7 @@ namespace NdvBot.Discord.Commands
         [Summary("Lists all commands")]
         public async Task HelpCommand()
         {
-            List<StringBuilder> builders = new();
-            StringBuilder curBuilder = new();
-            curBuilder.Append("```asciidoc\n");
+            ChunkStringBuilder chunkBuilder = new ChunkStringBuilder("asciidoc");
             foreach (var command in this._commandService.Commands.Where(c =>
             {
                 foreach (var precondition in c.Preconditions)
@@ -80,22 +78,10 @@ namespace NdvBot.Discord.Commands
                 }
 
                 localBuilder.Append("\n");
-                if (localBuilder.Length + curBuilder.Length >= 2000)
-                {
-                    builders.Add(curBuilder);
-                    curBuilder = new();
-                }
-                curBuilder.Append(localBuilder);
+                chunkBuilder.Append(localBuilder);
             }
 
-            curBuilder.Append("\n```");
-            
-            foreach (var builder in builders)
-            {
-                await ReplyAsync(builder.ToString());
-            }
-
-            await ReplyAsync(curBuilder.ToString());
+            await chunkBuilder.PrintOut((builder) => ReplyAsync(builder.ToString()));
         }
     }
 }
