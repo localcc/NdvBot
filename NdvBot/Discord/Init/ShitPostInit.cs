@@ -5,8 +5,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Timers;
 using Discord;
+using Discord.WebSocket;
 using MongoDB.Driver;
 using NdvBot.Database.Mongo;
+using NdvBot.Discord.Commands.Shitpost;
 using NdvBot.Discord.Database;
 
 namespace NdvBot.Discord.Init
@@ -17,14 +19,15 @@ namespace NdvBot.Discord.Init
 
         
         private Timer _timer;
-        private IClient _client;
         private IMongoConnection _mongoConnection;
+        private DiscordSocketClient _socketClient;
 
         public Task Init(IServiceProvider serviceProvider)
         {
-            var client = serviceProvider.GetService(typeof(IClient)) as IClient;
+            var client = serviceProvider.GetService(typeof(DiscordSocketClient)) as DiscordSocketClient;
             var mongoConnection = serviceProvider.GetService(typeof(IMongoConnection)) as IMongoConnection;
-            this._client = client ?? throw new DataException("Failed to get client from service provider");
+            this._socketClient = client ?? throw new DataException("Failed to get client from service provider");
+            this._socketClient.ReactionAdded += this.ReactionAdded;
             this._mongoConnection =
                 mongoConnection ?? throw new DataException("Failed to get database from service provider");
             
@@ -38,6 +41,62 @@ namespace NdvBot.Discord.Init
             return Task.CompletedTask;
         }
 
+        private async Task ReactionAdded(Cacheable<IUserMessage, ulong> msg, ISocketMessageChannel channel,
+            SocketReaction reaction)
+        {
+            var message = await msg.GetOrDownloadAsync();
+            if (message is null) return;
+            if (!reaction.User.IsSpecified) return;
+            if (reaction.User.Value.IsBot) return;
+            if (channel is not SocketGuildChannel socketChannel) return;
+            var f = Builders<GuildData>.Filter.Eq("GuildId", socketChannel.Guild.Id);
+            var data = (await this._mongoConnection.ServerDb
+                .GetCollection<GuildData>(MongoCollections.GuildDataColleciton).FindAsync(f)).FirstOrDefault();
+            if (data is null) return;
+            
+            
+            if (data.ShitPostData is null) return;
+            if(!data.ShitPostData.ReactionMessages.Contains(msg.Id)) return;
+
+            if (reaction.Emote.Name == Shitpost.Tick)
+            {
+                if (!data.ShitPostData.ChannelQueue.Contains(reaction.User.Value.Id))
+                {
+                    data.ShitPostData.ChannelQueue.Add(reaction.User.Value.Id);
+                }
+            }else if (reaction.Emote.Name == Shitpost.Cross)
+            {
+                data.ShitPostData.ChannelQueue.Remove(reaction.User.Value.Id);
+            }
+            await message.RemoveReactionAsync(reaction.Emote, reaction.User.Value);
+            
+            var content = Shitpost.GetQueueMsgContent(this._socketClient, data.ShitPostData);
+
+            data.ShitPostData.ChannelQueue.RemoveAll(e => content.removeQueue.Contains(e));
+            
+            var filter = Builders<GuildData>.Filter.Eq("_id", data._id);
+            var update = Builders<GuildData>.Update.Set("ShitPostData", data.ShitPostData);
+            await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
+                .FindOneAndUpdateAsync(filter, update);
+
+            
+            if (data.ShitPostData.ChannelQueue.Count != 0)
+            {            
+                await content.builder.PrintOut(async (sb) =>
+                {
+                    await message.ModifyAsync((props) =>
+                    {
+                        props.Content = sb.ToString();
+                    });
+                });
+            }
+            else
+            {
+                await message.ModifyAsync(props => props.Content = "```glsl\nThe queue is empty for now\n```");
+            }
+
+        }
+        
         private async void RunShitPost(object sender, ElapsedEventArgs args)
         {
             this._timer.Interval = new TimeSpan(1, 0, 0, 0).TotalMilliseconds;
@@ -49,7 +108,7 @@ namespace NdvBot.Discord.Init
             {
                 var guildId = guildData.GuildId;
                 var channelId = guildData.ShitPostData!.ShitPostChannelId;
-                var guild = this._client.DiscordClient.GetGuild(guildId);
+                var guild = this._socketClient.GetGuild(guildId);
                 if (guild is null) continue;
                 var channel = guild.GetTextChannel(channelId);
                 if (channel is null)
