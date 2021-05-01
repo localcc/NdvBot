@@ -41,7 +41,7 @@ jobs:
         run: cp -rf NdvBot/bin/Release/net5.0/publish/* bot/
      
       - name: Create service file
-        run: printf "[Unit]\nDescription=\"Manages discord bot\"\n[Service]\nUser=$USER\nExecStart=$PWD/bot/NdvBot\n[Install]\nWantedBy=multi-user.target" | sudo tee /etc/systemd/user/discordbot.service > /dev/null
+        run: printf "[Unit]\nDescription=\"Manages discord bot\"\n[Service]\nUser=$USER\nExecStart=$PWD/bot/NdvBot\n[Install]\nWantedBy=multi-user.target" | sudo tee /etc/systemd/system/discordbot.service > /dev/null
            
       - name: Reload daemon
         run: sudo systemctl daemon-reload
