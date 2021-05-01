@@ -1,0 +1,13 @@
+﻿# Default ignored files
+/shelf/
+/workspace.xml
+# Rider ignored files
+/modules.xml
+/projectSettingsUpdater.xml
+/contentModel.xml
+/.idea.NdvBot.iml
+# Datasource local storage ignored files
+/../../../../../../../../:\Users\localcc\Desktop\NdvBot\.idea\.idea.NdvBot\.idea/dataSources/
+/dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/
