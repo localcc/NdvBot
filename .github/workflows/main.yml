@@ -35,17 +35,17 @@ jobs:
         run: dotnet publish -c Release
         
       - name: Create bot directory
-        run: mkdir /bot
+        run: mkdir bot
           
       - name: Copy files to directory
         run: cp -rf NdvBot/bin/Release/net5.0/publish/* /bot/
      
       - name: Create service file
-        run: printf "[Unit]\nDescription=\"Manages discord bot\"\n[Service]\nExecStart=/bot/NdvBot\n[Install]\nWantedBy=multi-user.target" > /etc/systemd/system/discordbot.service
+        run: printf "[Unit]\nDescription=\"Manages discord bot\"\n[Service]\nUser=$USER\nExecStart=$PWD/bot/NdvBot\n[Install]\nWantedBy=multi-user.target" | sudo tee /etc/systemd/user/discordbot.service > /dev/null
            
       - name: Reload daemon
-        run: systemctl daemon-reload
+        run: sudo systemctl daemon-reload
         
       - name: Start bot
-        run: systemctl restart discordbot
+        run: sudo systemctl restart discordbot
         
