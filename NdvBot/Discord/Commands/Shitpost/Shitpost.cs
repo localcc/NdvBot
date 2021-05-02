@@ -6,6 +6,7 @@ using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
 using MongoDB.Driver;
+using MongoDB.Driver.Core.WireProtocol.Messages;
 using NdvBot.Database.Mongo;
 using NdvBot.Discord.Database;
 
@@ -31,6 +32,12 @@ namespace NdvBot.Discord.Commands.Shitpost
             var chunkBuilder = new ChunkStringBuilder("glsl");
             var removeQueue = new List<ulong>();
 
+            if (data.ChannelQueue.Count == 0)
+            {
+                //todo: localization
+                chunkBuilder.Append("The queue is empty for now");
+                return (chunkBuilder, removeQueue);
+            }
             for (var i = 0; i < data.ChannelQueue.Count; i++)
             {
                 StringBuilder localBuilder = new();
@@ -59,7 +66,7 @@ namespace NdvBot.Discord.Commands.Shitpost
         
 
         [RequireUserPermission(GuildPermission.Administrator)]
-        [Command("setShitpostChannel")]
+        [Command("setShitpostChannel", RunMode = RunMode.Async)]
         [Summary("Sets shitpost channel")]
         public async Task<RuntimeResult> SetShitpostChannel(ITextChannel channel)
         {
@@ -71,7 +78,7 @@ namespace NdvBot.Discord.Commands.Shitpost
             return CommandResult.FromSuccess($"Set {channel.Mention} as shitpost channel successfully!");
         }
         
-        [Command("getShitpostQueue")]
+        [Command("getShitpostQueue", RunMode = RunMode.Async)]
         [Summary("Shows shitpost channel queue")]
         public async Task<RuntimeResult> GetShitPostQueue()
         {
@@ -104,9 +111,8 @@ namespace NdvBot.Discord.Commands.Shitpost
             await Task.WhenAll(t1, t2);
             return CommandResult.FromSuccess();
         }
-        //todo: add message update
-        /*
-        [Command("addToShitpost")]
+        
+        [Command("addToShitpost", RunMode = RunMode.Async)]
         [Summary("Adds you or other user to shitpost queue")]
         public async Task<RuntimeResult> AddToShitpost(IUser? user = null)
         {
@@ -136,15 +142,23 @@ namespace NdvBot.Discord.Commands.Shitpost
             }
 
             this.Context.Data.ShitPostData.ChannelQueue.Add(user.Id);
-            var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
-            var update = Builders<GuildData>.Update.Set("ShitPostData", this.Context.Data.ShitPostData);
-            await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
-                .FindOneAndUpdateAsync(filter, update);
+
+            await Shitpost.UpdateMessagesContent(this._socketClient, this.Context.Guild, this.Context.Data.ShitPostData)
+                .ContinueWith(
+                    async (e) =>
+                    {
+
+                        var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
+                        var update = Builders<GuildData>.Update.Set("ShitPostData", this.Context.Data.ShitPostData);
+                        await this._mongoConnection.ServerDb
+                            .GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
+                            .FindOneAndUpdateAsync(filter, update);
+                    });
 
             return CommandResult.FromSuccess($"Added {user.Mention} to the queue!");
         }
         
-        [Command("removeFromShitpost")]
+        [Command("removeFromShitpost", RunMode = RunMode.Async)]
         [Summary("Removes you or other user from shitpost queue")]
         public async Task<RuntimeResult> RemoveFromShitpost(IUser? user = null)
         {
@@ -174,17 +188,73 @@ namespace NdvBot.Discord.Commands.Shitpost
 
             this.Context.Data.ShitPostData.ChannelQueue.Remove(user.Id);
 
-            var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
-            var update = Builders<GuildData>.Update.Set("ShitPostData", this.Context.Data.ShitPostData);
-            await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
-                .FindOneAndUpdateAsync(filter, update);
+            await Shitpost.UpdateMessagesContent(this._socketClient, this.Context.Guild, this.Context.Data.ShitPostData)
+                .ContinueWith(
+                    async (e) =>
+                    {
+                        var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
+                        var update = Builders<GuildData>.Update.Set("ShitPostData", this.Context.Data.ShitPostData);
+                        await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
+                            .FindOneAndUpdateAsync(filter, update);
+
+                    });
+            
 
             return CommandResult.FromSuccess($"Removed {user.Mention} from queue successfully!");
         }
-*/
+
+
+        public static async Task UpdateMessagesContent(DiscordSocketClient client, IGuild guild, ShitPostData data)
+        {
+            var tasks = new List<Task>();
+            
+            var res = Shitpost.GetQueueMsgContent(client, data);
+            data.ChannelQueue.RemoveAll(e => res.removeQueue.Contains(e));
+            
+            var content = res.builder.AsOne(2000).ToString();
+            
+            foreach (var (channelId, messages) in data.ReactionMessages)
+            {
+                async Task<bool> UpdateMessage(ITextChannel channel, ulong msgId, string content)
+                {
+                    var msg = await channel.GetMessageAsync(msgId) as IUserMessage;
+                    if (msg is null) return false;
+                    await msg.ModifyAsync((props) =>
+                    {
+                        props.Content = content;
+                    });
+                    return true;
+                }
+                
+                async Task UpdateChannelMessages(IGuild guild, List<ulong> msgs, string content)
+                {
+                    var channel = await guild.GetTextChannelAsync(channelId);
+                    if (channel is null) return;
+                    var tasks = new List<Task>();
+                    
+                    foreach (var msg in msgs)
+                    {
+                        tasks.Add(UpdateMessage(channel, msg, content).ContinueWith((res) =>
+                        {
+                            if (!res.Result)
+                            {
+                                msgs.Remove(msg);
+                            }
+                        }));
+                    }
+
+                    await Task.WhenAll(tasks);
+                } 
+                
+                
+                tasks.Add(UpdateChannelMessages(guild, messages, content));
+            }
+
+            await Task.WhenAll(tasks);
+        }
         
         [RequireUserPermission(GuildPermission.Administrator)]
-        [Command("sendShitpostReaction")]
+        [Command("sendShitpostReaction", RunMode = RunMode.Async)]
         [Summary("Sends shitpost reaction message that auto-updates")]
         public async Task<RuntimeResult> SendReactionMessage()
         {
@@ -226,8 +296,13 @@ namespace NdvBot.Discord.Commands.Shitpost
                 if (msg is null) return;
                 await msg.AddReactionAsync(new Emoji(Tick));
                 await msg.AddReactionAsync(new Emoji(Cross));
+                if (!shitPostData.ReactionMessages.TryGetValue(msg.Channel.Id, out var channelMessages))
+                {
+                    channelMessages = new List<ulong>();
+                    shitPostData.ReactionMessages.Add(msg.Channel.Id, channelMessages);
+                }
 
-                shitPostData.ReactionMessages.Add(msg.Id);
+                channelMessages.Add(msg.Id);
             });
 
             var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
@@ -236,5 +311,6 @@ namespace NdvBot.Discord.Commands.Shitpost
                 .FindOneAndUpdateAsync(filter, update);
             return CommandResult.FromSuccess();
         }
+        
     }
 }

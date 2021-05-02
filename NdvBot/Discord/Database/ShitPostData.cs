@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson.Serialization.Options;
 
 namespace NdvBot.Discord.Database
 {
@@ -7,7 +9,8 @@ namespace NdvBot.Discord.Database
     {
         public ulong ShitPostChannelId { get; set; }
         public List<ulong> ChannelQueue { get; set; } = new();
-        public List<ulong> ReactionMessages { get; set; } = new();
+        [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<ulong, List<ulong>> ReactionMessages { get; set; } = new();
 
         public ShitPostData()
         {

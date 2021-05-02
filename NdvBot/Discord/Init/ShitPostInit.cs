@@ -50,13 +50,14 @@ namespace NdvBot.Discord.Init
             if (reaction.User.Value.IsBot) return;
             if (channel is not SocketGuildChannel socketChannel) return;
             var f = Builders<GuildData>.Filter.Eq("GuildId", socketChannel.Guild.Id);
-            var data = (await this._mongoConnection.ServerDb
-                .GetCollection<GuildData>(MongoCollections.GuildDataColleciton).FindAsync(f)).FirstOrDefault();
+            var data = await (await this._mongoConnection.ServerDb
+                .GetCollection<GuildData>(MongoCollections.GuildDataColleciton).FindAsync(f)).FirstOrDefaultAsync();
             if (data is null) return;
             
             
             if (data.ShitPostData is null) return;
-            if(!data.ShitPostData.ReactionMessages.Contains(msg.Id)) return;
+            if(!data.ShitPostData.ReactionMessages.TryGetValue(socketChannel.Id, out var channelMessages)) return;
+            if (!channelMessages.Contains(msg.Id)) return;
 
             if (reaction.Emote.Name == Shitpost.Tick)
             {
@@ -68,33 +69,19 @@ namespace NdvBot.Discord.Init
             {
                 data.ShitPostData.ChannelQueue.Remove(reaction.User.Value.Id);
             }
-            await message.RemoveReactionAsync(reaction.Emote, reaction.User.Value);
-            
-            var content = Shitpost.GetQueueMsgContent(this._socketClient, data.ShitPostData);
 
-            data.ShitPostData.ChannelQueue.RemoveAll(e => content.removeQueue.Contains(e));
-            
-            var filter = Builders<GuildData>.Filter.Eq("_id", data._id);
-            var update = Builders<GuildData>.Update.Set("ShitPostData", data.ShitPostData);
-            await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
-                .FindOneAndUpdateAsync(filter, update);
+            var taskList = new List<Task>();
+            taskList.Add(message.RemoveReactionAsync(reaction.Emote, reaction.User.Value));
 
-            
-            if (data.ShitPostData.ChannelQueue.Count != 0)
-            {            
-                await content.builder.PrintOut(async (sb) =>
+            taskList.Add(Shitpost.UpdateMessagesContent(this._socketClient, socketChannel.Guild, data.ShitPostData).ContinueWith(
+                (e) =>
                 {
-                    await message.ModifyAsync((props) =>
-                    {
-                        props.Content = sb.ToString();
-                    });
-                });
-            }
-            else
-            {
-                await message.ModifyAsync(props => props.Content = "```glsl\nThe queue is empty for now\n```");
-            }
-
+                    var filter = Builders<GuildData>.Filter.Eq("_id", data._id);
+                    var update = Builders<GuildData>.Update.Set("ShitPostData", data.ShitPostData);
+                    taskList.Add(this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
+                        .FindOneAndUpdateAsync(filter, update));
+                }));
+            await Task.WhenAll(taskList);
         }
         
         private async void RunShitPost(object sender, ElapsedEventArgs args)

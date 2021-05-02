@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "NdvBot": {
+      "commandName": "Project",
+      "commandLineArgs": "./config.json ./certs"
+    }
+  }
+}
