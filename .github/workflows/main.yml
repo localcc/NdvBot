@@ -45,6 +45,9 @@ jobs:
            
       - name: Reload daemon
         run: sudo systemctl daemon-reload
+
+      - name: Add bot to autorun
+        run: sudo systemctl enable discordbot
         
       - name: Start bot
         run: sudo systemctl restart discordbot
