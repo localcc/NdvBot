@@ -31,7 +31,7 @@ namespace NdvBot.Discord.Init
             this._mongoConnection =
                 mongoConnection ?? throw new DataException("Failed to get database from service provider");
             
-            var midnight = DateTime.Now.AddSeconds(10);
+            var midnight = DateTime.Today.AddDays(1);
             var adjust = (midnight - DateTime.Now).TotalMilliseconds;
             
             this._timer = new Timer(adjust); // adjusting for running in sync with hour
