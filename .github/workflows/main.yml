@@ -38,7 +38,7 @@ jobs:
         run: mkdir bot
           
       - name: Copy files to directory
-        run: cp -rf NdvBot/bin/Release/net5.0/publish/* bot/
+        run: cp -rf NdvBot/bin/Release/net5.0/linux-x64/* bot/
      
       - name: Create service file
         run: printf "[Unit]\nDescription=\"Manages discord bot\"\n[Service]\nUser=$USER\nExecStart=$PWD/bot/NdvBot $HOME/config.json $HOME/certs\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/discordbot.service > /dev/null
