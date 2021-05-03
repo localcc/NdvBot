@@ -37,35 +37,42 @@ namespace NdvBot.Discord
 
         private async Task MessageReceived(SocketMessage msg)
         {
-            var message = msg as SocketUserMessage;
-            if (message is null) return;
-            if (message.Author.IsBot) return;
-
-            string prefix = ">>";
-            if (msg.Channel is not IGuildChannel guildChannel) return;
-            var mongoConnection = this._services.GetService(typeof(IMongoConnection)) as IMongoConnection;
-            if (mongoConnection is null)
+            try
             {
-                throw new DataException("MongoDB Unavailable");
-            }
+                var message = msg as SocketUserMessage;
+                if (message is null) return;
+                if (message.Author.IsBot) return;
 
-            var f1 = Builders<GuildData>.Filter.Eq("GuildId", guildChannel.Guild.Id);
-            var guildDataCollection =
-                mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton);
-            var guildData = (await guildDataCollection.FindAsync(f1)).FirstOrDefault();
-            if (guildData is null)
+                string prefix = ">>";
+                if (msg.Channel is not IGuildChannel guildChannel) return;
+                var mongoConnection = this._services.GetService(typeof(IMongoConnection)) as IMongoConnection;
+                if (mongoConnection is null)
+                {
+                    throw new DataException("MongoDB Unavailable");
+                }
+
+                var f1 = Builders<GuildData>.Filter.Eq("GuildId", guildChannel.Guild.Id);
+                var guildDataCollection =
+                    mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton);
+                var guildData = (await guildDataCollection.FindAsync(f1)).FirstOrDefault();
+                if (guildData is null)
+                {
+                    guildData = new GuildData(guildChannel.Guild.Id, ">>");
+                    await guildDataCollection.InsertOneAsync(guildData);
+                }
+
+                prefix = guildData.Prefix;
+
+                int argPos = 0;
+                if (!(message.HasStringPrefix(prefix, ref argPos))) return;
+
+                var context = new CustomCommandContext(guildData, this._client, message);
+                await this._commands.ExecuteAsync(context: context, argPos: argPos, services: this._services);
+            }
+            catch (Exception e)
             {
-                guildData = new GuildData(guildChannel.Guild.Id, ">>");
-                await guildDataCollection.InsertOneAsync(guildData);
+                Console.WriteLine(e.ToString());
             }
-
-            prefix = guildData.Prefix;
-
-            int argPos = 0;
-            if (!(message.HasStringPrefix(prefix, ref argPos))) return;
-
-            var context = new CustomCommandContext(guildData, this._client, message);
-            await this._commands.ExecuteAsync(context: context, argPos: argPos, services: this._services);
         }
 
         private async Task CommandExecuted(global::Discord.Optional<CommandInfo> command,
