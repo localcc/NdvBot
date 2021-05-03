@@ -30,9 +30,9 @@ jobs:
           
       - name: Install dependencies
         run: dotnet restore
-      
+
       - name: Build
-        run: dotnet publish -c Release
+        run: dotnet publish -r linux-x64 -p:PublishSingleFile=true --self-contained true -c Release
         
       - name: Create bot directory
         run: mkdir bot
