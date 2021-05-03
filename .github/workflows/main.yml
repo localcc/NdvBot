@@ -16,7 +16,7 @@ jobs:
   build:
     name: Build
     # The type of runner that the job will run on
-    runs-on: v623896
+    runs-on: vdsina
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
