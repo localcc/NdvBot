@@ -120,7 +120,9 @@ namespace NdvBot.Discord.Init
 
                 if (guildData.ShitPostData!.ChannelQueue.Count == 0)
                 {
-                    await channel.ModifyAsync((props) => props.Name = $"{guild.Owner.Username}-shitpost");
+                    var t1 =  channel.ModifyAsync((props) => props.Name = $"{guild.Owner.Username}-shitpost");
+                    var t2 = channel.SendMessageAsync($"{guild.Owner.Mention} is the new shitpost owner!");
+                    await Task.WhenAll(t1, t2);
                     continue;
                 }
 
@@ -137,15 +139,23 @@ namespace NdvBot.Discord.Init
 
                     if (user is not null)
                     {
-                        await channel.AddPermissionOverwriteAsync(user,
+                        var t1 = channel.AddPermissionOverwriteAsync(user,
                             new OverwritePermissions(sendMessages: PermValue.Allow));
-                        await channel.ModifyAsync((props) => props.Name = $"{user.Username}-shitpost");
+                        var t2 = channel.ModifyAsync((props) => props.Name = $"{user.Username}-shitpost");
+                        var t3 = channel.SendMessageAsync($"{user.Mention} is the new shitpost owner!");
+                        await Task.WhenAll(t1, t2, t3);
                     }
 
-                    var filter = Builders<GuildData>.Filter.Eq("_id", guildData._id);
-                    var update = Builders<GuildData>.Update.Set("ShitPostData", guildData.ShitPostData);
-                    await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
-                        .FindOneAndUpdateAsync(filter, update);
+                    await Shitpost.UpdateMessagesContent(this._socketClient, guild, guildData.ShitPostData).ContinueWith(
+                        async (e) =>
+                        {
+
+                            var filter = Builders<GuildData>.Filter.Eq("_id", guildData._id);
+                            var update = Builders<GuildData>.Update.Set("ShitPostData", guildData.ShitPostData);
+                            await this._mongoConnection.ServerDb
+                                .GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
+                                .FindOneAndUpdateAsync(filter, update);
+                        });
                 }
                 catch (InvalidOperationException)
                 {
