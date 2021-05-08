@@ -2,10 +2,10 @@
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Discord.Commands;
-using Discord.WebSocket;
+using DSharpPlus;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using NdvBot.Config;
 using NdvBot.Database.Mongo;
 using NdvBot.Discord;
@@ -41,10 +41,15 @@ namespace NdvBot
                 }
 
                 ConfigFile.Current = deserialized;
-                var socketClient = new DiscordSocketClient();
-                var commands = new CommandService();
-                var serviceProvider = new ServiceCollection().AddSingleton(socketClient).AddSingleton(commands)
-                    .AddSingleton<IMongoConnection, MongoConnection>((provider) => new MongoConnection(args[1])).AddSingleton<IClient, Client>().AddSingleton<ILogger, Logger>()
+                var discordClient = new DiscordShardedClient(new DiscordConfiguration
+                {
+                    Token = ConfigFile.Current.Token,
+                    TokenType = TokenType.Bot,
+                    Intents = DiscordIntents.All,
+                    MinimumLogLevel = LogLevel.Trace
+                });
+                var serviceProvider = new ServiceCollection().AddSingleton(discordClient)
+                    .AddSingleton<IMongoConnection, MongoConnection>((provider) => new MongoConnection(args[1])).AddSingleton<IClient, Client>()
                     .BuildServiceProvider();
                 var client = (IClient) serviceProvider.GetService(typeof(IClient));
                 await client.Start(deserialized.Token);

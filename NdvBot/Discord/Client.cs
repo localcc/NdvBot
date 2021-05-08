@@ -4,9 +4,11 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using Discord;
-using Discord.Commands;
-using Discord.WebSocket;
+using DSharpPlus;
+using DSharpPlus.EventArgs;
+using DSharpPlus.Interactivity;
+using DSharpPlus.Interactivity.Enums;
+using DSharpPlus.Interactivity.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NdvBot.Config;
@@ -16,25 +18,24 @@ namespace NdvBot.Discord
 {
     public class Client : IClient
     {
-        public DiscordSocketClient DiscordClient {get;}
-        private readonly CommandService _commands;
+        public DiscordShardedClient DiscordClient {get;}
         private readonly IServiceProvider _serviceProvider;
-        private readonly ILogger _logger;
 
-        public Client(IServiceProvider serviceProvider, ILogger logger, DiscordSocketClient discordClient, CommandService commands)
+        public Client(IServiceProvider serviceProvider, DiscordShardedClient discordClient)
         {
             this.DiscordClient = discordClient;
-            this._logger = logger;
-            this._commands = commands;
             this._serviceProvider = serviceProvider;
         }
 
         public async Task Start(string token)
         { 
-            await new CommandHandler(this._serviceProvider, this._logger, this._commands, this.DiscordClient).InitializeAsync();
-            await this.DiscordClient.LoginAsync(TokenType.Bot, token);
-            await this.DiscordClient.StartAsync();
+            await new CommandHandler(this._serviceProvider, this.DiscordClient).InitializeAsync();
+            await this.DiscordClient.UseInteractivityAsync(new InteractivityConfiguration
+            {
+                PollBehaviour = PollBehaviour.DeleteEmojis,
+            });
 
+            await this.DiscordClient.StartAsync();
 
             foreach (var type in Assembly.GetExecutingAssembly().GetTypes()
                 .Where(e => e.GetInterfaces().Contains(typeof(IInit)))
@@ -49,17 +50,16 @@ namespace NdvBot.Discord
                 await init.Init(this._serviceProvider);
             }
 
-            this.DiscordClient.JoinedGuild += this.JoinedGuild;
+            this.DiscordClient.GuildCreated += this.JoinedGuild;
         }
 
-        private async Task JoinedGuild(SocketGuild guild)
+        private async Task JoinedGuild(DiscordClient client, GuildCreateEventArgs args)
         {
-            var botUser = guild.GetUser(this.DiscordClient.CurrentUser.Id);
+            var botUser = await args.Guild.GetMemberAsync(this.DiscordClient.CurrentUser.Id);
             await botUser.ModifyAsync((props) =>
             {
                 props.Nickname = $"[>>] {this.DiscordClient.CurrentUser.Username}";
             });
         }
-
     }
 }

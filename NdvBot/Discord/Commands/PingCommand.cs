@@ -1,12 +1,14 @@
 ﻿using System.Threading.Tasks;
-using Discord.Commands;
+using DSharpPlus.CommandsNext;
+using DSharpPlus.CommandsNext.Attributes;
 
 namespace NdvBot.Discord.Commands
 {
-    public class PingCommand : ModuleBase<CustomCommandContext>
+    public class PingCommand : BaseCommandModule
     {
         [Command("ping")]
-        [Summary("Pong!")]
-        public Task Ping() => ReplyAsync("Pong");
+        [Description("Pong!")]
+        public Task Ping(CommandContext ctx) => ctx.RespondAsync("pong!");
+        
     }
 }

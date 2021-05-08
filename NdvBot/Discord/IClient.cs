@@ -1,11 +1,11 @@
 ﻿using System.Threading.Tasks;
-using Discord.WebSocket;
+using DSharpPlus;
 
 namespace NdvBot.Discord
 {
     public interface IClient
     {
-        public DiscordSocketClient DiscordClient {get;}
+        public DiscordShardedClient DiscordClient {get;}
         public Task Start(string token);
     }
 }

@@ -4,8 +4,8 @@ using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Timers;
-using Discord;
-using Discord.WebSocket;
+using DSharpPlus;
+using DSharpPlus.EventArgs;
 using MongoDB.Driver;
 using NdvBot.Database.Mongo;
 using NdvBot.Discord.Commands.Shitpost;
@@ -20,17 +20,17 @@ namespace NdvBot.Discord.Init
         
         private Timer _timer;
         private IMongoConnection _mongoConnection;
-        private DiscordSocketClient _socketClient;
+        private DiscordShardedClient _socketClient;
 
         public Task Init(IServiceProvider serviceProvider)
         {
-            var client = serviceProvider.GetService(typeof(DiscordSocketClient)) as DiscordSocketClient;
+            var client = serviceProvider.GetService(typeof(DiscordShardedClient)) as DiscordShardedClient;
             var mongoConnection = serviceProvider.GetService(typeof(IMongoConnection)) as IMongoConnection;
             this._socketClient = client ?? throw new DataException("Failed to get client from service provider");
-            this._socketClient.ReactionAdded += this.ReactionAdded;
+            this._socketClient.MessageReactionAdded += this.ReactionAdded;
             this._mongoConnection =
                 mongoConnection ?? throw new DataException("Failed to get database from service provider");
-            
+
             var midnight = DateTime.Today.AddDays(1);
             var adjust = (midnight - DateTime.Now).TotalMilliseconds;
             
@@ -41,39 +41,39 @@ namespace NdvBot.Discord.Init
             return Task.CompletedTask;
         }
 
-        private async Task ReactionAdded(Cacheable<IUserMessage, ulong> msg, ISocketMessageChannel channel,
-            SocketReaction reaction)
+        private async Task ReactionAdded(DiscordClient client, MessageReactionAddEventArgs args)
         {
-            var message = await msg.GetOrDownloadAsync();
-            if (message is null) return;
-            if (!reaction.User.IsSpecified) return;
-            if (reaction.User.Value.IsBot) return;
-            if (channel is not SocketGuildChannel socketChannel) return;
-            var f = Builders<GuildData>.Filter.Eq("GuildId", socketChannel.Guild.Id);
+            var msg = args.Message;
+            if (msg is null) return;
+            var reaction = args.Emoji;
+            if (reaction is null) return;
+            if (args.User.IsBot) return;
+            var f = Builders<GuildData>.Filter.Eq("GuildId", args.Guild.Id);
             var data = await (await this._mongoConnection.ServerDb
                 .GetCollection<GuildData>(MongoCollections.GuildDataColleciton).FindAsync(f)).FirstOrDefaultAsync();
             if (data is null) return;
             
             
             if (data.ShitPostData is null) return;
-            if(!data.ShitPostData.ReactionMessages.TryGetValue(socketChannel.Id, out var channelMessages)) return;
+            if(!data.ShitPostData.ReactionMessages.TryGetValue(args.Channel.Id, out var channelMessages)) return;
             if (!channelMessages.Contains(msg.Id)) return;
 
-            if (reaction.Emote.Name == Shitpost.Tick)
+            Console.WriteLine(reaction.Name);
+            if (reaction.Name == Shitpost.Tick)
             {
-                if (!data.ShitPostData.ChannelQueue.Contains(reaction.User.Value.Id))
+                if (!data.ShitPostData.ChannelQueue.Contains(args.User.Id))
                 {
-                    data.ShitPostData.ChannelQueue.Add(reaction.User.Value.Id);
+                    data.ShitPostData.ChannelQueue.Add(args.User.Id);
                 }
-            }else if (reaction.Emote.Name == Shitpost.Cross)
+            }else if (reaction.Name == Shitpost.Cross)
             {
-                data.ShitPostData.ChannelQueue.Remove(reaction.User.Value.Id);
+                data.ShitPostData.ChannelQueue.Remove(args.User.Id);
             }
 
             var taskList = new List<Task>();
-            taskList.Add(message.RemoveReactionAsync(reaction.Emote, reaction.User.Value));
+            taskList.Add(args.Message.DeleteReactionAsync(reaction, args.User));
 
-            taskList.Add(Shitpost.UpdateMessagesContent(this._socketClient, socketChannel.Guild, data.ShitPostData).ContinueWith(
+            taskList.Add(Shitpost.UpdateMessagesContent(client, args.Guild, data.ShitPostData).ContinueWith(
                 (e) =>
                 {
                     var filter = Builders<GuildData>.Filter.Eq("_id", data._id);
@@ -95,10 +95,11 @@ namespace NdvBot.Discord.Init
             {
                 var guildId = guildData.GuildId;
                 var channelId = guildData.ShitPostData!.ShitPostChannelId;
-                var guild = this._socketClient.GetGuild(guildId);
+                var socketClient = this._socketClient.GetShard(guildId);
+                var guild = await socketClient.GetGuildAsync(guildId);
                 if (guild is null) continue;
-                var channel = guild.GetTextChannel(channelId);
-                if (channel is null)
+                var channel = guild.GetChannel(channelId);
+                if (channel is null || channel.Type != ChannelType.Text)
                 {
                     var filter = Builders<GuildData>.Filter.Eq("_id", guildData._id);
                     var update = Builders<GuildData>.Update.Set<ShitPostData?>("ShitPostData", null);
@@ -110,26 +111,26 @@ namespace NdvBot.Discord.Init
                 var tasks = new List<Task>(channel.PermissionOverwrites.Count);
                 foreach (var channelPermissionOverwrite in channel.PermissionOverwrites)
                 {
-                    if(channelPermissionOverwrite.TargetType == PermissionTarget.User)
+                    if(channelPermissionOverwrite.Type == OverwriteType.Member)
                     {
-                        var overwriteUser = guild.GetUser(channelPermissionOverwrite.TargetId);
+                        var overwriteUser = await channelPermissionOverwrite.GetMemberAsync();
                         if (overwriteUser is null) continue;
-                        tasks.Add(channel.RemovePermissionOverwriteAsync(overwriteUser));
+                        tasks.Add(channel.AddOverwriteAsync(overwriteUser, Permissions.None, Permissions.None));
                     }
                 }
+                await Task.WhenAll(tasks);
+                tasks.Clear();
 
                 if (guildData.ShitPostData!.ChannelQueue.Count == 0)
                 {
-                    var t1 =  channel.ModifyAsync((props) => props.Name = $"{guild.Owner.Username}-shitpost");
-                    var t2 = channel.SendMessageAsync($"{guild.Owner.Mention} is the new shitpost owner!");
-                    await Task.WhenAll(t1, t2);
+                    await channel.ModifyAsync((props) => props.Name = $"{guild.Owner.Username}-shitpost");
                     continue;
                 }
 
                 try
                 {
                     var userId = guildData.ShitPostData.ChannelQueue.First();
-                    var user = guild.GetUser(userId);
+                    var user = await guild.GetMemberAsync(userId);
                     guildData.ShitPostData.ChannelQueue.Remove(userId);
                     while (user is null && guildData.ShitPostData.ChannelQueue.Count != 0)
                     {
@@ -139,14 +140,12 @@ namespace NdvBot.Discord.Init
 
                     if (user is not null)
                     {
-                        var t1 = channel.AddPermissionOverwriteAsync(user,
-                            new OverwritePermissions(sendMessages: PermValue.Allow));
+                        var t1 = channel.AddOverwriteAsync(user, Permissions.SendMessages);
                         var t2 = channel.ModifyAsync((props) => props.Name = $"{user.Username}-shitpost");
-                        var t3 = channel.SendMessageAsync($"{user.Mention} is the new shitpost owner!");
-                        await Task.WhenAll(t1, t2, t3);
+                        await Task.WhenAll(t1, t2);
                     }
 
-                    await Shitpost.UpdateMessagesContent(this._socketClient, guild, guildData.ShitPostData).ContinueWith(
+                    await Shitpost.UpdateMessagesContent(socketClient, guild, guildData.ShitPostData).ContinueWith(
                         async (e) =>
                         {
 

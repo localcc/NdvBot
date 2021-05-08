@@ -1,13 +1,14 @@
 ﻿using System.Threading.Tasks;
-using Discord;
-using Discord.Commands;
+using DSharpPlus;
+using DSharpPlus.CommandsNext;
+using DSharpPlus.CommandsNext.Attributes;
 using MongoDB.Driver;
 using NdvBot.Database.Mongo;
 using NdvBot.Discord.Database;
 
 namespace NdvBot.Discord.Commands.Settings
 {
-    public class Settings : ModuleBase<CustomCommandContext>
+    public class Settings : BaseCommandModule
     {
         private readonly IMongoConnection _mongoConnection;
         
@@ -16,18 +17,20 @@ namespace NdvBot.Discord.Commands.Settings
             this._mongoConnection = mongoConnection;
         } 
         
-        [RequireUserPermission(GuildPermission.Administrator)]
+        [RequireUserPermissions(Permissions.Administrator)]
+        [RequireBotPermissions(Permissions.ManageNicknames)]
         [Command("setPrefix")]
-        [Summary("Changes command prefix, default: `>>`")]
-        public async Task<RuntimeResult> SetPrefix(string? newPrefix)
+        [Description("Changes command prefix, default: `>>`")]
+        public async Task SetPrefix(CommandContext ctx, string? newPrefix)
         {            
             if (newPrefix is null || newPrefix.Length > 3)
             {
                 //todo: localization
-                return CommandResult.FromError("Invalid prefix!");
+                await ctx.RespondAsync("Invalid prefix!");
+                return;
             } 
 
-            var botUser = this.Context.Guild.GetUser(this.Context.Client.CurrentUser.Id);
+            var botUser = await ctx.Guild.GetMemberAsync(ctx.Client.CurrentUser.Id);
             await botUser.ModifyAsync((props) =>
             {
                 //space, two brackets
@@ -36,12 +39,12 @@ namespace NdvBot.Discord.Commands.Settings
             });
             
 
-            var f1 = Builders<GuildData>.Filter.Eq("GuildId", Context.Guild.Id);
+            var f1 = Builders<GuildData>.Filter.Eq("GuildId", ctx.Guild.Id);
             var update = Builders<GuildData>.Update.Set("Prefix", newPrefix);
             await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                 .FindOneAndUpdateAsync(f1, update);
             //todo: localization
-            return CommandResult.FromSuccess("Prefix set!");
+            await ctx.RespondAsync("Prefix set!");
         }
     }
 }

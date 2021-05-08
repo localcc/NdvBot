@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Text;
 using System.Threading.Tasks;
-using Discord;
-using Discord.Commands;
-using Discord.WebSocket;
+using DSharpPlus;
+using DSharpPlus.CommandsNext;
+using DSharpPlus.CommandsNext.Attributes;
+using DSharpPlus.Entities;
 using MongoDB.Driver;
 using MongoDB.Driver.Core.WireProtocol.Messages;
 using NdvBot.Database.Mongo;
@@ -12,22 +14,22 @@ using NdvBot.Discord.Database;
 
 namespace NdvBot.Discord.Commands.Shitpost
 {
-    public class Shitpost : ModuleBase<CustomCommandContext>
+    public class Shitpost : BaseCommandModule
     {
         private readonly IMongoConnection _mongoConnection;
-        private readonly DiscordSocketClient _socketClient;
+        private readonly DiscordShardedClient _socketClient;
         
         
         public const string Tick = "✅";
         public const string Cross = "❌";
         
-        public Shitpost(IMongoConnection mongoConnection, DiscordSocketClient socketClient)
+        public Shitpost(IMongoConnection mongoConnection, DiscordShardedClient socketClient)
         {
             this._mongoConnection = mongoConnection;
             this._socketClient = socketClient;
         }
 
-        public static (ChunkStringBuilder builder, List<ulong> removeQueue) GetQueueMsgContent(DiscordSocketClient client, ShitPostData data)
+        public static async Task<(ChunkStringBuilder builder, List<ulong> removeQueue)> GetQueueMsgContent(DiscordClient client, ShitPostData data)
         { 
             var chunkBuilder = new ChunkStringBuilder("glsl");
             var removeQueue = new List<ulong>();
@@ -41,7 +43,8 @@ namespace NdvBot.Discord.Commands.Shitpost
             for (var i = 0; i < data.ChannelQueue.Count; i++)
             {
                 StringBuilder localBuilder = new();
-                var user = client.GetUser(data.ChannelQueue[i]);
+                var user = 
+                    await client.GetUserAsync(data.ChannelQueue[i]);
                 if (user is null)
                 {
                     removeQueue.Add(data.ChannelQueue[i]);
@@ -65,159 +68,176 @@ namespace NdvBot.Discord.Commands.Shitpost
         }
         
 
-        [RequireUserPermission(GuildPermission.Administrator)]
-        [Command("setShitpostChannel", RunMode = RunMode.Async)]
-        [Summary("Sets shitpost channel")]
-        public async Task<RuntimeResult> SetShitpostChannel(ITextChannel channel)
+        [RequireUserPermissions(Permissions.Administrator)]
+        [RequireBotPermissions(Permissions.ManageChannels)]
+        [Command("setShitpostChannel")]
+        [DSharpPlus.CommandsNext.Attributes.Description("Adds you or other user to shitpost queue")]
+        public async Task SetShitpostChannel(CommandContext ctx, DiscordChannel channel)
         {
-            var filter = Builders<GuildData>.Filter.Eq("GuildId", this.Context.Guild.Id);
+            var filter = Builders<GuildData>.Filter.Eq("GuildId", channel.Guild.Id);
             var newData = new ShitPostData(channel.Id);
             var update = Builders<GuildData>.Update.Set("ShitPostData", newData);
             await this._mongoConnection.ServerDb
                 .GetCollection<GuildData>(MongoCollections.GuildDataColleciton).FindOneAndUpdateAsync(filter, update);
-            return CommandResult.FromSuccess($"Set {channel.Mention} as shitpost channel successfully!");
+            await ctx.RespondAsync($"Set {channel.Mention} as shitpost channel successfully!");
         }
         
-        [Command("getShitpostQueue", RunMode = RunMode.Async)]
-        [Summary("Shows shitpost channel queue")]
-        public async Task<RuntimeResult> GetShitPostQueue()
+        [RequireBotPermissions(Permissions.SendMessages)]
+        [Command("getShitpostQueue")]
+        [DSharpPlus.CommandsNext.Attributes.Description("Shows shitpost channel queue")]
+        public async Task GetShitPostQueue(CommandContext ctx)
         {
-            var data = this.Context.Data.ShitPostData;
+            var guildData = await ctx.GetGuildData(this._mongoConnection);
+            var socketClient = this._socketClient.GetShard(ctx.Guild);
+            if (guildData is null) return;
+            var data = guildData.ShitPostData;
             if (data is null)
             {
                 //todo: localization
-                return CommandResult.FromError("Shit post channel is not set");
+                await ctx.RespondAsync("Shit post channel is not set!");
+                return;
             }
             //todo: localization
 
-            var chunkBuilder = Shitpost.GetQueueMsgContent(this._socketClient, data);
+            var chunkBuilder = await Shitpost.GetQueueMsgContent(socketClient, data);
 
             Task t1;
             if (data.ChannelQueue.Count != 0)
             {
-                t1 = chunkBuilder.builder.PrintOut((builder) => ReplyAsync(builder.ToString()));
+                t1 = chunkBuilder.builder.PrintOut((builder) => ctx.RespondAsync(builder.ToString()));
             }
             else
             {
-                t1 = ReplyAsync("Queue is empty!");
+                t1 = ctx.RespondAsync("Queue is empty!");
             }
 
             data.ChannelQueue.RemoveAll(e => chunkBuilder.removeQueue.Contains(e));
 
-            var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
+            var filter = Builders<GuildData>.Filter.Eq("_id", guildData._id);
             var update = Builders<GuildData>.Update.Set("ShitPostData", data);
             var t2 = this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                 .FindOneAndUpdateAsync(filter, update);
             await Task.WhenAll(t1, t2);
-            return CommandResult.FromSuccess();
         }
         
-        [Command("addToShitpost", RunMode = RunMode.Async)]
-        [Summary("Adds you or other user to shitpost queue")]
-        public async Task<RuntimeResult> AddToShitpost(IUser? user = null)
+        [RequireBotPermissions(Permissions.SendMessages)]
+        [Command("addToShitpost")]
+        [DSharpPlus.CommandsNext.Attributes.Description("Adds you or other user to shitpost queue")]
+        public async Task AddToShitpost(CommandContext ctx, DiscordUser? user = null)
         {
-            if (this.Context.Data.ShitPostData is null)
+            var guildData = await ctx.GetGuildData(this._mongoConnection);
+            var socketClient = this._socketClient.GetShard(ctx.Guild);
+            if (guildData is null) return;
+            if (guildData.ShitPostData is null)
             {
                 //todo: localization
-                return CommandResult.FromSuccess("Shit post channel is not set");
+                await ctx.RespondAsync("Shit post channel is not set");
+                return;
             }
 
             if (user is not null)
             {
-                var guildUser = this.Context.Guild.GetUser(this.Context.User.Id);
-                if (!guildUser.GuildPermissions.Administrator)
+                var guildUser = await ctx.Guild.GetMemberAsync(ctx.User.Id);
+                if ((guildUser.PermissionsIn(ctx.Channel) & Permissions.Administrator) != Permissions.Administrator)
                 {
                     //todo: localization
-                    return CommandResult.FromError("Not enough permissions!");
+                    await ctx.RespondAsync("Not enoguh permissions!");
+                    return;
                 }
             }
             else
             {
-                user = Context.User;
+                user = ctx.User;
             }
-            if (this.Context.Data.ShitPostData.ChannelQueue.Contains(user.Id))
+            if (guildData.ShitPostData.ChannelQueue.Contains(user.Id))
             {
                 //todo: localization
-                return CommandResult.FromError("You can't add a user twice to the queue!");
+                await ctx.RespondAsync("You can't add a user twice to the queue!");
+                return;
             }
 
-            this.Context.Data.ShitPostData.ChannelQueue.Add(user.Id);
+            guildData.ShitPostData.ChannelQueue.Add(user.Id);
 
-            await Shitpost.UpdateMessagesContent(this._socketClient, this.Context.Guild, this.Context.Data.ShitPostData)
+            await Shitpost.UpdateMessagesContent(socketClient, ctx.Guild, guildData.ShitPostData)
                 .ContinueWith(
                     async (e) =>
                     {
 
-                        var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
-                        var update = Builders<GuildData>.Update.Set("ShitPostData", this.Context.Data.ShitPostData);
+                        var filter = Builders<GuildData>.Filter.Eq("_id", guildData._id);
+                        var update = Builders<GuildData>.Update.Set("ShitPostData", guildData.ShitPostData);
                         await this._mongoConnection.ServerDb
                             .GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                             .FindOneAndUpdateAsync(filter, update);
                     });
 
-            return CommandResult.FromSuccess($"Added {user.Mention} to the queue!");
+            await ctx.RespondAsync($"Added {user.Mention} to the queue!");
         }
         
-        [Command("removeFromShitpost", RunMode = RunMode.Async)]
-        [Summary("Removes you or other user from shitpost queue")]
-        public async Task<RuntimeResult> RemoveFromShitpost(IUser? user = null)
+        [RequireBotPermissions(Permissions.SendMessages)]
+        [Command("removeFromShitpost")]
+        [DSharpPlus.CommandsNext.Attributes.Description("Removes you or other user from shitpost queue")]
+        public async Task RemoveFromShitpost(CommandContext ctx, DiscordUser? user = null)
         {
-            if (this.Context.Data.ShitPostData is null)
+            var guildData = await ctx.GetGuildData(this._mongoConnection);
+            var socketClient = this._socketClient.GetShard(ctx.Guild);
+            if (guildData is null) return;
+            if (guildData.ShitPostData is null)
             {
                 //todo: localization
-                return CommandResult.FromError("Shit post channel is not set!");
+                await ctx.RespondAsync("Shit post channel is not set!");
+                return;
             }
             if (user is not null)
             {
-                var guildUser = this.Context.Guild.GetUser(this.Context.User.Id);
-                if (!guildUser.GuildPermissions.Administrator)
+                var guildUser = await ctx.Guild.GetMemberAsync(ctx.User.Id);
+                if ((guildUser.PermissionsIn(ctx.Channel) & Permissions.Administrator) != Permissions.Administrator)
                 {
                     //todo: localization
-                    return CommandResult.FromError("Not enough permissions!");
+                    await ctx.RespondAsync("Not enough permissions!");
+                    return;
                 }
             }
             else
             {
-                user = Context.User;
+                user = ctx.User;
             }
 
-            if (!this.Context.Data.ShitPostData.ChannelQueue.Contains(user.Id))
+            if (!guildData.ShitPostData.ChannelQueue.Contains(user.Id))
             {
-                return CommandResult.FromError("The user is not in the queue!");
+                await ctx.RespondAsync("The user is not in the queue!");
+                return;
             }
 
-            this.Context.Data.ShitPostData.ChannelQueue.Remove(user.Id);
+            guildData.ShitPostData.ChannelQueue.Remove(user.Id);
 
-            await Shitpost.UpdateMessagesContent(this._socketClient, this.Context.Guild, this.Context.Data.ShitPostData)
+            await Shitpost.UpdateMessagesContent(socketClient, ctx.Guild, guildData.ShitPostData)
                 .ContinueWith(
                     async (e) =>
                     {
-                        var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
-                        var update = Builders<GuildData>.Update.Set("ShitPostData", this.Context.Data.ShitPostData);
+                        var filter = Builders<GuildData>.Filter.Eq("_id", guildData._id);
+                        var update = Builders<GuildData>.Update.Set("ShitPostData", guildData.ShitPostData);
                         await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                             .FindOneAndUpdateAsync(filter, update);
 
                     });
-            
 
-            return CommandResult.FromSuccess($"Removed {user.Mention} from queue successfully!");
+            await ctx.RespondAsync($"Removed {user.Mention} from queue successfully!");
         }
 
-
-        public static async Task UpdateMessagesContent(DiscordSocketClient client, IGuild guild, ShitPostData data)
+        public static async Task UpdateMessagesContent(DiscordClient client, DiscordGuild guild, ShitPostData data)
         {
             var tasks = new List<Task>();
             
-            var res = Shitpost.GetQueueMsgContent(client, data);
+            var res = await Shitpost.GetQueueMsgContent(client, data);
             data.ChannelQueue.RemoveAll(e => res.removeQueue.Contains(e));
             
             var content = res.builder.AsOne(2000).ToString();
             
             foreach (var (channelId, messages) in data.ReactionMessages)
             {
-                async Task<bool> UpdateMessage(ITextChannel channel, ulong msgId, string content)
+                async Task<bool> UpdateMessage(DiscordChannel channel, ulong msgId, string content)
                 {
-                    var msg = await channel.GetMessageAsync(msgId) as IUserMessage;
+                    var msg = await channel.GetMessageAsync(msgId);
                     if (msg is null) return false;
                     await msg.ModifyAsync((props) =>
                     {
@@ -226,9 +246,9 @@ namespace NdvBot.Discord.Commands.Shitpost
                     return true;
                 }
                 
-                async Task UpdateChannelMessages(IGuild guild, List<ulong> msgs, string content)
+                async Task UpdateChannelMessages(DiscordGuild guild, List<ulong> msgs, string content)
                 {
-                    var channel = await guild.GetTextChannelAsync(channelId);
+                    var channel = guild.GetChannel(channelId);
                     if (channel is null) return;
                     var tasks = new List<Task>();
                     
@@ -253,25 +273,29 @@ namespace NdvBot.Discord.Commands.Shitpost
             await Task.WhenAll(tasks);
         }
         
-        [RequireUserPermission(GuildPermission.Administrator)]
-        [Command("sendShitpostReaction", RunMode = RunMode.Async)]
-        [Summary("Sends shitpost reaction message that auto-updates")]
-        public async Task<RuntimeResult> SendReactionMessage()
+        [RequireUserPermissions(Permissions.Administrator)]
+        [RequireBotPermissions(Permissions.SendMessages)]
+        [Command("sendShitpostReaction")]
+        [DSharpPlus.CommandsNext.Attributes.Description("Sends shitpost reaction message that auto-updates")]
+        public async Task SendReactionMessage(CommandContext ctx)
         {
-            if (Context.Data.ShitPostData is null)
+            var guildData = await ctx.GetGuildData(this._mongoConnection);
+            if (guildData is null) return;
+            if (guildData.ShitPostData is null)
             {
                 //todo: localization
-                return CommandResult.FromError("Guild has no shitpost channel set!");
+                await ctx.RespondAsync("Guild has no shitpost channel set!");
+                return;
             }
 
             ChunkStringBuilder builder = new("glsl");
-            var shitPostData = Context.Data.ShitPostData;
+            var shitPostData = guildData.ShitPostData;
             if (shitPostData.ChannelQueue.Count > 0)
             {
                 for (var i = 0; i < shitPostData.ChannelQueue.Count; i++)
                 {
                     StringBuilder localBuilder = new();
-                    var user = this.Context.Client.GetUser(shitPostData.ChannelQueue[i]);
+                    var user = await ctx.Client.GetUserAsync(shitPostData.ChannelQueue[i]);
                     localBuilder.Append(i);
                     localBuilder.Append(": ");
                     localBuilder.Append(user.Username);
@@ -292,10 +316,10 @@ namespace NdvBot.Discord.Commands.Shitpost
 
             await builder.PrintOut(async (b) =>
             {
-                var msg = await ReplyAsync(b.ToString());
+                var msg = await ctx.Channel.SendMessageAsync(b.ToString());
                 if (msg is null) return;
-                await msg.AddReactionAsync(new Emoji(Tick));
-                await msg.AddReactionAsync(new Emoji(Cross));
+                await msg.CreateReactionAsync(DiscordEmoji.FromUnicode(Tick));
+                await msg.CreateReactionAsync(DiscordEmoji.FromUnicode(Cross));
                 if (!shitPostData.ReactionMessages.TryGetValue(msg.Channel.Id, out var channelMessages))
                 {
                     channelMessages = new List<ulong>();
@@ -305,11 +329,10 @@ namespace NdvBot.Discord.Commands.Shitpost
                 channelMessages.Add(msg.Id);
             });
 
-            var filter = Builders<GuildData>.Filter.Eq("_id", this.Context.Data._id);
+            var filter = Builders<GuildData>.Filter.Eq("_id", guildData._id);
             var update = Builders<GuildData>.Update.Set("ShitPostData", shitPostData);
             await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                 .FindOneAndUpdateAsync(filter, update);
-            return CommandResult.FromSuccess();
         }
         
     }

@@ -43,11 +43,11 @@ namespace NdvBot.Discord
             return true;
         }
 
-        public bool Append(string str, int limit = 2000)
+        public ChunkStringBuilder Append(string str, int limit = 2000)
         {
             if (str.Length >= limit)
             {
-                return false;
+                return this;
             }
 
             if (str.Length + this._builder.Length >= limit)
@@ -59,7 +59,7 @@ namespace NdvBot.Discord
             }
 
             this._builder.Append(str);
-            return true;
+            return this;
         }
 
         public async Task PrintOut(Func<StringBuilder, Task> printFunc)
