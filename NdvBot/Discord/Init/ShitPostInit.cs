@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Timers;
 using DSharpPlus;
 using DSharpPlus.EventArgs;
+using DSharpPlus.Exceptions;
 using MongoDB.Driver;
 using NdvBot.Database.Mongo;
 using NdvBot.Discord.Commands.Shitpost;
@@ -96,6 +97,9 @@ namespace NdvBot.Discord.Init
                 var guildId = guildData.GuildId;
                 var channelId = guildData.ShitPostData!.ShitPostChannelId;
                 var socketClient = this._socketClient.GetShard(guildId);
+                
+                try
+                {
                 var guild = await socketClient.GetGuildAsync(guildId);
                 if (guild is null) continue;
                 var channel = guild.GetChannel(channelId);
@@ -127,8 +131,6 @@ namespace NdvBot.Discord.Init
                     continue;
                 }
 
-                try
-                {
                     var userId = guildData.ShitPostData.ChannelQueue.First();
                     var user = await guild.GetMemberAsync(userId);
                     guildData.ShitPostData.ChannelQueue.Remove(userId);
@@ -156,9 +158,12 @@ namespace NdvBot.Discord.Init
                                 .FindOneAndUpdateAsync(filter, update);
                         });
                 }
-                catch (InvalidOperationException)
+                catch (Exception e)
                 {
-                    
+                    if (e is not InvalidOperationException && e is not UnauthorizedException)
+                    {
+                        throw;
+                    }
                 }
             }
         }

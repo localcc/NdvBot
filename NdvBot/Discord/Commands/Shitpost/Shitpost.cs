@@ -334,6 +334,5 @@ namespace NdvBot.Discord.Commands.Shitpost
             await this._mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                 .FindOneAndUpdateAsync(filter, update);
         }
-        
     }
 }
