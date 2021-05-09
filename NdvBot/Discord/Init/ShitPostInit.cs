@@ -162,7 +162,7 @@ namespace NdvBot.Discord.Init
                 {
                     if (e is not InvalidOperationException && e is not UnauthorizedException)
                     {
-                        throw;
+                        Console.Error.WriteLine(e);
                     }
                 }
             }
