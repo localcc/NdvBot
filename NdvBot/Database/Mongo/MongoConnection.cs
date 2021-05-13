@@ -60,7 +60,7 @@ namespace NdvBot.Database.Mongo
             {
                 throw new DataException("Config file not ready!");
             }
-            if (sslPolicyErrors == SslPolicyErrors.None)
+            if (sslPolicyErrors == SslPolicyErrors.None || ((sslPolicyErrors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0))
             {
                 return true;
             }

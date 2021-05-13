@@ -1,5 +1,6 @@
 ﻿using System.Threading.Tasks;
 using DSharpPlus.CommandsNext;
+using DSharpPlus.Entities;
 using MongoDB.Driver;
 using NdvBot.Database.Mongo;
 using NdvBot.Discord.Database;
@@ -12,7 +13,12 @@ namespace NdvBot.Discord
         {
             if (ctx.Guild is null) return null;
 
-            var filter = Builders<GuildData>.Filter.Eq("GuildId", ctx.Guild.Id);
+            return await ctx.Guild.GetGuildData(mongoConnection);
+        }
+
+        public static async Task<GuildData?> GetGuildData(this DiscordGuild guild, IMongoConnection mongoConnection)
+        {
+            var filter = Builders<GuildData>.Filter.Eq("GuildId", guild.Id);
             return (await mongoConnection.ServerDb.GetCollection<GuildData>(MongoCollections.GuildDataColleciton)
                 .FindAsync(filter)).FirstOrDefault();
         }

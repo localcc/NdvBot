@@ -8,6 +8,7 @@ namespace NdvBot.Discord.Database
         public ObjectId _id { get; set; }
         public ulong GuildId { get; set; }
         public string Prefix { get; set; }
+        public EmojiVoteData? EmojiVoteData { get; set; }
         public ShitPostData? ShitPostData { get; set; }
 
         public GuildData()
